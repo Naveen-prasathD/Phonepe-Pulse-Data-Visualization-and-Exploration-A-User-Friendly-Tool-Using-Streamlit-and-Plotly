@@ -1,0 +1,280 @@
+#STEP-1 : CLONE THE GITHUB REPO
+import os
+import git
+import requests
+import pandas as pd
+
+# GitHub repository URL
+repo_url = "https://github.com/phonepe/pulse.git"
+
+# Clone the repository
+repo_dir = "phonepe_pulse"
+if os.path.exists(repo_dir):
+    # If the directory already exists, update the repository
+    repo = git.Repo(repo_dir)
+    repo.remotes.origin.pull()
+else:
+    # If the directory doesn't exist, clone the repository
+    git.Repo.clone_from(repo_url, repo_dir)
+
+# Define the GitHub API URL for fetching data
+api_url = "https://api.github.com/repos/phonepe/pulse/issues"
+
+# Fetch data from the GitHub API (you may need authentication for higher rate limits)
+response = requests.get(api_url)
+issues_data = response.json()
+
+# Convert the data to a DataFrame (pandas DataFrame)
+df = pd.DataFrame(issues_data)
+
+# Choose the columns you want to include in the CSV or JSON file
+selected_columns = ["title", "created_at", "updated_at", "user", "state", "comments"]
+
+# Create a new DataFrame with the selected columns
+df_selected = df[selected_columns]
+
+# Define the output file format (CSV or JSON)
+output_format = "csv"  # Change to "json" if you want JSON output
+
+# Define the output file name
+output_file = f"phonepe_pulse_issues.{output_format}"
+
+# Save the DataFrame to the output file
+if output_format == "csv":
+    df_selected.to_csv(output_file, index=False)
+elif output_format == "json":
+    df_selected.to_json(output_file, orient="records", lines=True)
+
+print(f"Data saved to {output_file}")
+
+#STEP-2 : PRE-PROCESSING DATA
+import pandas as pd
+
+# Load the data from the CSV file
+data = pd.read_csv("phonepe_pulse_issues.csv")
+
+# Display the first few rows to get an overview of the data
+print(data.head())
+
+# Check for missing values
+print("Missing Values:\n", data.isnull().sum())
+
+# Data Cleaning and Preprocessing
+# In this example, we will drop rows with missing values in the "comments" column
+data = data.dropna(subset=["comments"])
+
+# Convert the "created_at" and "updated_at" columns to datetime objects
+data["created_at"] = pd.to_datetime(data["created_at"])
+data["updated_at"] = pd.to_datetime(data["updated_at"])
+
+# Extract year and month from the "created_at" column for analysis
+data["year_created"] = data["created_at"].dt.year
+data["month_created"] = data["created_at"].dt.month
+
+# Summary Statistics
+print("Summary Statistics:")
+print(data.describe())
+
+# Data Visualization (you can use libraries like Matplotlib or Seaborn for this)
+import matplotlib.pyplot as plt
+
+# Example: Plot the number of issues created each month
+monthly_counts = data.groupby(["year_created", "month_created"]).size().reset_index(name="issue_count")
+plt.figure(figsize=(12, 6))
+plt.plot(monthly_counts["year_created"].astype(str) + "-" + monthly_counts["month_created"].astype(str), monthly_counts["issue_count"], marker='o')
+plt.xlabel("Month")
+plt.ylabel("Number of Issues")
+plt.title("Monthly Issue Creation")
+plt.xticks(rotation=45)
+plt.grid()
+plt.show()
+
+# Save the cleaned and preprocessed data to a new CSV file
+data.to_csv("phonepe_pulse_cleaned_issues.csv", index=False)
+
+print("Data preprocessing and visualization complete.")
+
+#STEP-3 : INSERT DATA INTO MYSQL
+import mysql.connector
+import pandas as pd
+
+# Connect to the MySQL database
+db_config = {
+        "host": "YOUR_HOST",
+        "user": "YOUR_USER",
+        "password": "YOUR_PASSWORD",
+        "database": "YOUR_DATABASE"
+    }
+
+conn = mysql.connector.connect(**db_config)
+cursor = conn.cursor()
+
+# Load the cleaned and preprocessed data
+data = pd.read_csv("phonepe_pulse_cleaned_issues.csv")
+
+# Insert data into the MySQL table
+for _, row in data.iterrows():
+    insert_query = "INSERT INTO pulse (title, created_at, updated_at, user, state, comments, year_created, month_created) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)"
+    values = (
+        row["title"],
+        row["created_at"],
+        row["updated_at"],
+        row["user"],
+        row["state"],
+        int(row["comments"]),
+        int(row["year_created"]),
+        int(row["month_created"])
+    )
+    cursor.execute(insert_query, values)
+
+# Commit the changes and close the connection
+conn.commit()
+conn.close()
+
+print("Data inserted into the MySQL database.")
+
+#STEP-4 : DISPLAY THE DATA USING STREAMLIT AND PLOTLY
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+
+# Load your cleaned and preprocessed data (assuming you have a DataFrame with lat and lon columns)
+data = pd.read_csv("phonepe_pulse_cleaned_issues.csv")
+
+# Set the Streamlit app title
+st.title("Interactive Dashboard with Plotly and Streamlit")
+
+# Create a sidebar with dropdown options for user selection
+st.sidebar.header("Select Data and Visualization Options")
+selected_option = st.sidebar.selectbox("Select Data to Display", ["Number of Issues", "Comments", "State"])
+map_type = st.sidebar.selectbox("Select Map Type", ["Scatter Map", "Choropleth Map"])
+
+# Filter the data based on user selection
+if selected_option == "Number of Issues":
+    title = "Number of Issues"
+    hover_data = ["title"]
+    color_data = "comments"
+elif selected_option == "Comments":
+    title = "Comments"
+    hover_data = ["title", "comments"]
+    color_data = "comments"
+elif selected_option == "State":
+    title = "State"
+    hover_data = ["title", "state"]
+    color_data = "state"
+
+# Create the map based on user selection
+if map_type == "Scatter Map":
+    fig = px.scatter_mapbox(data, lat="latitude", lon="longitude", hover_name=hover_data,
+                            color=color_data, color_continuous_scale=px.colors.sequential.Plasma,
+                            size_max=15, zoom=3)
+    fig.update_layout(mapbox_style="carto-positron")
+else:  # Choropleth Map
+    fig = px.choropleth(data, locations="state", locationmode="USA-states", color=color_data,
+                        hover_name=hover_data, color_continuous_scale=px.colors.sequential.Plasma)
+
+# Display the map using Plotly
+st.plotly_chart(fig)
+
+# Add some text or description to the dashboard
+st.write(f"Displaying {title} on the map.")
+
+# Add any other content or widgets you want to the Streamlit app
+# For example, you can add data tables, charts, or additional controls.
+
+# Finally, run the Streamlit app
+if __name__ == "__main__":
+    st.set_page_config(layout="wide")
+    st.sidebar.markdown("### About")
+    st.sidebar.write(
+        "This is an interactive dashboard created with Streamlit and Plotly. "
+        "Select different options on the sidebar to explore the data on the map."
+    )
+
+#STEP-5 : DATA RETREIVE FROM MYSQL
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import mysql.connector
+
+
+# Create a function to fetch data from the MySQL database
+def fetch_data_from_database():
+    db_config = {
+        "host": "YOUR_HOST",
+        "user": "YOUR_USER",
+        "password": "YOUR_PASSWORD",
+        "database": "YOUR_DATABASE"
+    }
+
+    conn = mysql.connector.connect(**db_config)
+    cursor = conn.cursor()
+
+    query = "SELECT * FROM pulse"
+
+    cursor.execute(query)
+    data = cursor.fetchall()
+
+    # Create a DataFrame from the fetched data
+    df = pd.DataFrame(data,
+                      columns=["id", "title", "created_at", "updated_at", "user", "state", "comments", "year_created",
+                               "month_created", "latitude", "longitude"])
+
+    # Close the database connection
+    conn.close()
+
+    return df
+
+
+# Set the Streamlit app title
+st.title("Interactive Dashboard with Plotly and Streamlit")
+
+# Create a sidebar with dropdown options for user selection
+st.sidebar.header("Select Data and Visualization Options")
+selected_option = st.sidebar.selectbox("Select Data to Display", ["Number of Issues", "Comments", "State"])
+map_type = st.sidebar.selectbox("Select Map Type", ["Scatter Map", "Choropleth Map"])
+
+# Fetch data from the database
+data = fetch_data_from_database()
+
+# Filter the data based on user selection
+if selected_option == "Number of Issues":
+    title = "Number of Issues"
+    hover_data = ["title"]
+    color_data = "comments"
+elif selected_option == "Comments":
+    title = "Comments"
+    hover_data = ["title", "comments"]
+    color_data = "comments"
+elif selected_option == "State":
+    title = "State"
+    hover_data = ["title", "state"]
+    color_data = "state"
+
+# Create the map based on user selection
+if map_type == "Scatter Map":
+    fig = px.scatter_mapbox(data, lat="latitude", lon="longitude", hover_name=hover_data,
+                            color=color_data, color_continuous_scale=px.colors.sequential.Plasma,
+                            size_max=15, zoom=3)
+    fig.update_layout(mapbox_style="carto-positron")
+else:  # Choropleth Map
+    fig = px.choropleth(data, locations="state", locationmode="USA-states", color=color_data,
+                        hover_name=hover_data, color_continuous_scale=px.colors.sequential.Plasma)
+
+# Display the map using Plotly
+st.plotly_chart(fig)
+
+# Add some text or description to the dashboard
+st.write(f"Displaying {title} on the map.")
+
+# Add any other content or widgets you want to the Streamlit app
+# For example, you can add data tables, charts, or additional controls.
+
+# Finally, run the Streamlit app
+if __name__ == "__main__":
+    st.set_page_config(layout="wide")
+    st.sidebar.markdown("### About")
+    st.sidebar.write(
+        "This is an interactive dashboard created with Streamlit and Plotly. "
+        "Select different options on the sidebar to explore the data on the map."
+    )
