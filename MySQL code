@@ -1,0 +1,11 @@
+CREATE TABLE pulse_issues (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    title VARCHAR(255),
+    created_at DATETIME,
+    updated_at DATETIME,
+    user VARCHAR(255),
+    state VARCHAR(20),
+    comments INT,
+    year_created INT,
+    month_created INT
+);
